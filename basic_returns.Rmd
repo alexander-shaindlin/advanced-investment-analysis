@@ -1,0 +1,147 @@
+---
+title: "AIA 1, descriptive return statistics"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown:
+    highlight: kate
+---
+
+```{r setup, include=FALSE}
+## Global options
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+# Reading data
+
+This code is a little scuffed... but it works so we're rolling with it. The main issue I had trying to load the file in with code alone was the presence of commas in the thousand separator. That is accounted for with the clown code below...
+
+Gross monthly returns are downloaded in USD from [MSCI](https://www.msci.com/end-of-day-data-search) and saved as `historyIndex.xls`. The Hong Kong return index file used here is also available for download elsewhere on my github.
+
+```{r read_data, message=FALSE, warning=FALSE}
+path <- getwd()
+file <- "/historyIndex.xls"
+library(readxl)
+library(tidyverse)
+RI <- read_excel(paste0(path,file), col_types = c("text", "text"), skip = 6) %>% 
+  mutate("HONG KONG Standard (Large+Mid Cap)
+" = parse_number("HONG KONG Standard (Large+Mid Cap)
+"))
+RI <- as.data.frame(RI)
+RI <- RI[, -3]
+RI$`HONG KONG Standard (Large+Mid Cap)` <- as.character(RI$`HONG KONG Standard (Large+Mid Cap)`)
+RI$`HONG KONG Standard (Large+Mid Cap)` <- gsub(",", "", RI$`HONG KONG Standard (Large+Mid Cap)`)
+RI$`HONG KONG Standard (Large+Mid Cap)` <- as.numeric(RI$`HONG KONG Standard (Large+Mid Cap)`)
+RI <- na.omit(RI)
+```
+
+This code chunk performs the following tasks:
+
+1.  Sets the working directory to the current directory.
+
+2.  Defines a file name "historyIndex.xls".
+
+3.  Loads the "readxl" package for reading Excel files and loads the "tidyverse" package for data manipulation.
+
+4.  Reads an Excel file named "historyIndex.xls" starting from the 6th row and creates a data frame called "RI".
+
+5.  Parses the "HONG KONG Standard (Large+Mid Cap)" column and removes commas from the values.
+
+6.  Converts the "HONG KONG Standard (Large+Mid Cap)" column from character to numeric data type.
+
+7.  Removes rows containing missing values from the data frame "RI".
+
+In summary, this code chunk reads an Excel file, cleans and manipulates the data in the "HONG KONG Standard (Large+Mid Cap)" column, and removes missing values.
+
+# Computing returns
+
+**`dim(RI)`** returns a vector of two dimensions of the data frame "RI", which represent the number of rows and columns, respectively. By appending **`[1]`** to **`dim(RI)`**, we are extracting only the first element of this vector, which represents the number of rows.
+
+```{r RI, message=FALSE, warning=FALSE}
+obs <- dim(RI)[1]
+R <- RI[-1,2]/RI[-obs,2] - 1
+```
+
+The **`[-1,2]`** and **`[-obs,2]`** in the formula are used to remove the first and last rows of the **`RI`** data frame, respectively. This is because the relative return cannot be computed for the first observation since there is no previous observation to compare it to, and the last observation does not have a subsequent observation to compare it to.
+
+# Descriptives
+
+```{r descriptives, message=FALSE}
+library(PerformanceAnalytics)
+stats <- c(obs = obs-1,
+           a.mean = mean(R),
+           g.mean = mean.geometric(R),
+           med = median(R),
+           var = var(R),
+           std = sd(R),
+           min = min(R),
+           max = max(R),
+           p.loss = mean(R<0),
+           avg.loss =  mean(R[R<0]),
+           lower = quantile(R, 0.025),
+           upper = quantile(R, 0.975),
+           skew = skewness(R),
+           kurt = kurtosis(R))
+```
+
+In summary, this code chunk calculates various investment performance statistics using the "PerformanceAnalytics" package and stores them in a vector called "stats". The statistics will provide insights into the historical performance of the "HONG KONG Standard (Large+Mid Cap)" index.
+
+-   PerformanceAnalytics knows it should use gross returns for the geometric mean calculation.
+
+# "Annualizing" returns
+
+This R code chunk computes various summary statistics for the annual returns of a financial asset or portfolio, based on the **`RI`** data frame.
+
+```{r R.a}
+dec <- seq(1,obs,12)
+dec <- c(dec,obs) # remember to add the last observation
+RI.a <- RI[dec,]
+obs.a <- dim(RI.a)[1]
+R.a <- RI.a[-1,2]/RI.a[-obs.a,2] - 1
+stats.a <- c(obs = obs.a-1,
+           a.mean = mean(R.a),
+           g.mean = mean.geometric(R.a),
+           med = median(R.a),
+           var = var(R.a),
+           std = sd(R.a),
+           min = min(R.a),
+           max = max(R.a),
+           p.loss = mean(R.a<0),
+           avg.loss =  mean(R.a[R.a<0]),
+           lower = quantile(R.a, 0.025),
+           upper = quantile(R.a, 0.975),
+           skew = skewness(R.a),
+           kurt = kurtosis(R.a))
+```
+
+The first two lines create a sequence of integers **`dec`** representing the indices of the December observations in **`RI`**. The sequence starts from 1 and increases by 12, indicating the December observations for each year. The **`c()`** function is used to append the last observation index to **`dec`**.
+
+The third line creates a new data frame **`RI.a`** containing only the December observations and the last observation from **`RI`**.
+
+The fourth line extracts the number of rows in **`RI.a`** using the **`dim()`** function and assigns it to the variable **`obs.a`**.
+
+The fifth line calculates the annual returns **`R.a`** of the asset or portfolio. The calculation is similar to the previous code chunk, but now it is based on the **`RI.a`** data frame, which contains only the December observations. The relative returns are computed using the same formula and the **`[-1,2]`** and **`[-obs.a,2]`** indices to remove the first and last observations.
+
+# Appendix
+
+```{r}
+library(knitr)
+kable(cbind(Monthly = stats, Annual = stats.a), digits = 3)
+```
+
+```{r}
+library(lubridate)
+library(xts)
+RI$Date <- lubridate::mdy(RI$Date)
+xts_obj <- xts(RI[,2], order.by = RI[,1])
+
+df <- data.frame(date = index(xts_obj), returns = coredata(xts_obj))
+
+# Plot the data using ggplot2
+ggplot(data = df, aes(x = date, y = returns)) +
+  geom_line(color = "#B44B28") +
+  ggtitle("HONG KONG Standard (Large+Mid Cap) MSCI Index Returns") +
+  labs(x = "Date", y = "Gross (Monthly) Returns") +
+  theme(panel.background = element_rect(fill = "#EFF6F7"),
+        panel.grid.major = element_line(color = "#D1E0E3"),
+        panel.grid.minor = element_line(color = "#D1E0E3"))
+```
